@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import Link from "next/link";
 import { AgentClient } from "./agent-client";
 
@@ -9,13 +12,8 @@ async function fetchAgent(tokenId: string) {
       const res = await fetch(
         `https://api.8004scan.io/api/v1/agents/${chainId}/${tokenId}`,
         {
-          headers: {
-            Accept: "application/json",
-            ...(process.env.EIGHTSCAN_API_KEY
-              ? { "X-API-Key": process.env.EIGHTSCAN_API_KEY }
-              : {}),
-          },
-          next: { revalidate: 60 },
+          headers: { Accept: "application/json" },
+          cache: "no-store",
         }
       );
 
