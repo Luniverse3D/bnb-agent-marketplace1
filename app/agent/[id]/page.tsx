@@ -23,8 +23,19 @@ type AgentDetail = {
   metadata: Record<string, unknown> | null;
 };
 
-// Try these chains in order. BSC first, then Base, then Ethereum.
-const CHAIN_IDS = [56, 8453, 1];
+// All supported chains on 8004scan.
+// BSC, Base, Ethereum, Polygon, Monad, BSC Testnet, Ethereum Sepolia
+const CHAIN_IDS = [56, 8453, 1, 137, 143, 97, 11155111];
+
+const CHAIN_NAMES: Record<number, string> = {
+  56: "BSC",
+  8453: "Base",
+  1: "Ethereum",
+  137: "Polygon",
+  143: "Monad",
+  97: "BSC Testnet",
+  11155111: "Ethereum Sepolia",
+};
 
 export default function AgentPage() {
   const params = useParams();
@@ -64,7 +75,7 @@ export default function AgentPage() {
 
       // If we get here, the agent wasn't found on any chain
       setError(
-        `Agent #${tokenId} was not found on BSC, Base, or Ethereum. It may be on an unsupported network.`
+        `Agent #${tokenId} was not found on any supported network (BSC, Base, Ethereum, Polygon, Monad, or their testnets).`
       );
       setLoading(false);
     }
@@ -172,13 +183,7 @@ export default function AgentPage() {
                 Chain
               </div>
               <div className="text-lg font-mono text-zinc-200">
-                {agent.chain_id === 56
-                  ? "BSC"
-                  : agent.chain_id === 8453
-                  ? "Base"
-                  : agent.chain_id === 1
-                  ? "Ethereum"
-                  : `Chain ${agent.chain_id}`}
+                {CHAIN_NAMES[agent.chain_id] || `Chain ${agent.chain_id}`}
               </div>
             </div>
             <div>
