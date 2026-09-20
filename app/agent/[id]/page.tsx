@@ -7,12 +7,10 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 type AgentDetail = {
   id: string;
-  agent_id: string;
   token_id: string;
   chain_id: number;
   name: string;
   description: string | null;
-  image_url: string | null;
   owner_address: string;
   total_score: number;
   star_count: number;
@@ -20,12 +18,7 @@ type AgentDetail = {
   supported_protocols: string[];
   is_verified: boolean;
   created_at: string;
-  metadata: Record<string, unknown> | null;
 };
-
-// All supported chains on 8004scan.
-// BSC, Base, Ethereum, Polygon, Monad, BSC Testnet, Ethereum Sepolia
-const CHAIN_IDS = [56, 8453, 1, 137, 143, 97, 11155111];
 
 const CHAIN_NAMES: Record<number, string> = {
   56: "BSC",
@@ -52,31 +45,28 @@ export default function AgentPage() {
       setLoading(true);
       setError(null);
 
-      // Try each chain until we find the agent
-      for (const chainId of CHAIN_IDS) {
-        try {
-          const res = await fetch(
-            `https://www.8004scan.io/api/v1/public/agents/${chainId}/${tokenId}`
-          );
+      try {
+        // Call our own API route — no CORS issues
+        const res = await fetch(`/api/agent?tokenId=${tokenId}`);
 
-          if (res.ok) {
-            const json = await res.json();
-            if (json.success && json.data) {
-              setAgent(json.data);
-              setLoading(false);
-              return; // Found it, stop searching
-            }
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setAgent(json.data);
+            setLoading(false);
+            return;
           }
-          // If 404, try the next chain
-        } catch (err) {
-          // Network error, try the next chain
         }
+
+        if (res.status === 404) {
+          setError(`Agent #${tokenId} was not found on any supported network.`);
+        } else {
+          setError(`Failed to load agent (status ${res.status}).`);
+        }
+      } catch (err) {
+        setError("Network error while loading agent.");
       }
 
-      // If we get here, the agent wasn't found on any chain
-      setError(
-        `Agent #${tokenId} was not found on any supported network (BSC, Base, Ethereum, Polygon, Monad, or their testnets).`
-      );
       setLoading(false);
     }
 
@@ -109,9 +99,7 @@ export default function AgentPage() {
     );
   }
 
-  if (!agent) {
-    return null;
-  }
+  if (!agent) return null;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -163,42 +151,28 @@ export default function AgentPage() {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 border-t border-zinc-800 pt-4">
             <div>
-              <div className="text-xs text-zinc-500 uppercase tracking-wide">
-                Reputation
-              </div>
-              <div className="text-lg font-mono text-zinc-200">
-                {agent.total_score}
-              </div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wide">Reputation</div>
+              <div className="text-lg font-mono text-zinc-200">{agent.total_score}</div>
             </div>
             <div>
-              <div className="text-xs text-zinc-500 uppercase tracking-wide">
-                Stars
-              </div>
-              <div className="text-lg font-mono text-zinc-200">
-                {agent.star_count}
-              </div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wide">Stars</div>
+              <div className="text-lg font-mono text-zinc-200">{agent.star_count}</div>
             </div>
             <div>
-              <div className="text-xs text-zinc-500 uppercase tracking-wide">
-                Chain
-              </div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wide">Chain</div>
               <div className="text-lg font-mono text-zinc-200">
                 {CHAIN_NAMES[agent.chain_id] || `Chain ${agent.chain_id}`}
               </div>
             </div>
             <div>
-              <div className="text-xs text-zinc-500 uppercase tracking-wide">
-                Token ID
-              </div>
-              <div className="text-lg font-mono text-zinc-200">
-                {agent.token_id}
-              </div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wide">Token ID</div>
+              <div className="text-lg font-mono text-zinc-200">{agent.token_id}</div>
             </div>
           </div>
         </div>
 
         {agent.supported_protocols && agent.supported_protocols.length > 0 && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 mb-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
             <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide mb-3">
               Supported Protocols
             </h2>
@@ -212,17 +186,6 @@ export default function AgentPage() {
                 </span>
               ))}
             </div>
-          </div>
-        )}
-
-        {agent.metadata && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
-            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wide mb-3">
-              Metadata
-            </h2>
-            <pre className="text-xs text-zinc-400 overflow-x-auto">
-              {JSON.stringify(agent.metadata, null, 2)}
-            </pre>
           </div>
         )}
       </main>
