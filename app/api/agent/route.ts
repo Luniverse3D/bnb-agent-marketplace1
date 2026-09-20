@@ -16,10 +16,17 @@ export async function GET(request: NextRequest) {
         `https://api.8004scan.io/api/v1/public/agents/${chainId}/${tokenId}`,
         {
           headers: { 'Accept': 'application/json' },
-          // Cache for 60 seconds to avoid rate limiting
           next: { revalidate: 60 },
         }
       );
+
+      // If rate limited, stop immediately
+      if (res.status === 429) {
+        return NextResponse.json(
+          { success: false, error: 'Rate limited by 8004scan. Wait a minute and try again.' },
+          { status: 429 }
+        );
+      }
 
       if (res.ok) {
         const json = await res.json();
@@ -30,10 +37,13 @@ export async function GET(request: NextRequest) {
     } catch (err) {
       console.error(`Chain ${chainId} lookup failed:`, err);
     }
+
+    // Small delay between requests to avoid hitting the rate limit
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   return NextResponse.json(
-    { success: false, error: `Agent #${tokenId} not found on any supported chain.` },
+    { success: false, error: `Agent #${tokenId} not found.` },
     { status: 404 }
   );
 }
