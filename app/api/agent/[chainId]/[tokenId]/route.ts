@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 4. Read optional search params
+    // 4. Payment confirmed — read optional query parameters
     const { searchParams } = new URL(request.url);
     const tokenId = searchParams.get('tokenId');
     const limit = searchParams.get('limit') || '1000';
@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
 
     let fetchUrl = `https://8004scan.io/api/v1/public/agents?limit=${limit}&page=${page}`;
 
+    // If a specific tokenId search is requested
     if (tokenId) {
       fetchUrl = `https://8004scan.io/api/v1/public/agents?search=${tokenId}`;
     }
