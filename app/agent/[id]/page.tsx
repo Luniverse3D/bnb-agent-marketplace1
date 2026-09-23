@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 
-// Declaration for MetaMask / Web3 provider on window
 declare global {
   interface Window {
     ethereum?: any;
@@ -14,7 +13,6 @@ interface PageProps {
 }
 
 export default function AgentDetailPage({ params }: PageProps) {
-  // Unwrap Next.js async params via React.use
   const { id: tokenId } = React.use(params);
 
   const [loading, setLoading] = useState(false);
@@ -22,61 +20,7 @@ export default function AgentDetailPage({ params }: PageProps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [paymentReqs, setPaymentReqs] = useState<any | null>(null);
 
-  // Step 1: Initial Fetch to trigger 402 Challenge or direct download
-  async function handleExportCSV() {
-    setLoading(true);
-    setErrorMsg(null);
-    setPaymentReqs(null);
-
-    try {
-      const res = await fetch(`/api/agent/56/${tokenId}`);
-
-      // Handle HTTP 402 Payment Challenge
-      if (res.status === 402) {
-        const rawHeader =
-          res.headers.get('x-payment-requirements') ||
-          res.headers.get('payment-required') ||
-          res.headers.get('PAYMENT-REQUIRED');
-
-        if (!rawHeader) {
-          throw new Error(
-            '402 Payment Required, but browser could not read payment headers. Ensure Access-Control-Expose-Headers is active on server.'
-          );
-        }
-
-        let parsedData: any;
-        try {
-          if (rawHeader.startsWith('eyJ') || !rawHeader.trim().startsWith('{')) {
-            parsedData = JSON.parse(atob(rawHeader));
-          } else {
-            parsedData = typeof rawHeader === 'string' ? JSON.parse(rawHeader) : rawHeader;
-          }
-        } catch (parseError) {
-          console.error('Header parsing error:', parseError, rawHeader);
-          throw new Error('Invalid payment required response format.');
-        }
-
-        console.log('x402 Requirements Received:', parsedData);
-        setPaymentReqs(parsedData);
-        return;
-      }
-
-      // If already authorized (HTTP 200)
-      if (res.ok) {
-        await triggerFileDownload(res);
-        return;
-      }
-
-      throw new Error(`Unexpected server response: ${res.status}`);
-    } catch (err: any) {
-      console.error('Export Fetch Error:', err);
-      setErrorMsg(err.message || 'Failed to initialize CSV export.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Helper function to trigger browser file save
+  // Helper function to handle browser CSV file save
   async function triggerFileDownload(response: Response) {
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
@@ -89,7 +33,64 @@ export default function AgentDetailPage({ params }: PageProps) {
     window.URL.revokeObjectURL(url);
   }
 
-  // Step 2: Connect MetaMask and Sign EIP-3009 0.01 U Authorization
+  // Step 1: Request Export -> Catch 402 Challenge (Suppress Error Banners)
+  async function handleExportCSV() {
+    setLoading(true);
+    setErrorMsg(null);
+    setPaymentReqs(null);
+
+    try {
+      const res = await fetch(`/api/agent/56/${tokenId}`);
+
+      // Handle HTTP 402 Payment Challenge
+      if (res.status === 402) {
+        let paymentRequirements = null;
+
+        // Strategy A: Try reading header
+        const rawHeader =
+          res.headers.get('x-payment-requirements') ||
+          res.headers.get('payment-required');
+
+        if (rawHeader) {
+          try {
+            paymentRequirements = typeof rawHeader === 'string' ? JSON.parse(rawHeader) : rawHeader;
+          } catch (e) {
+            console.warn('Header parse warning, falling back to body:', e);
+          }
+        }
+
+        // Strategy B: Fallback to reading body JSON
+        if (!paymentRequirements) {
+          const bodyJson = await res.json().catch(() => ({}));
+          paymentRequirements = bodyJson.requirements;
+        }
+
+        if (paymentRequirements) {
+          setErrorMsg(null); // Clear error banner on active 402 state
+          setPaymentReqs(paymentRequirements);
+          return;
+        }
+
+        throw new Error('Could not parse payment requirements from response.');
+      }
+
+      if (res.ok) {
+        setErrorMsg(null);
+        await triggerFileDownload(res);
+        return;
+      }
+
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || errJson.message || `Server returned code ${res.status}`);
+    } catch (err: any) {
+      console.error('Export fetch error:', err);
+      setErrorMsg(err.message || 'Failed to initialize CSV export.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Step 2: Trigger MetaMask EIP-712 Signature for 0.01 U
   async function handleSignAndPay() {
     if (!window.ethereum) {
       alert('MetaMask or a Web3 compatible wallet was not detected in your browser.');
@@ -100,11 +101,11 @@ export default function AgentDetailPage({ params }: PageProps) {
     setErrorMsg(null);
 
     try {
-      // 1. Request Wallet Connection
+      // 1. Connect User Account
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       const userAddress = accounts[0];
 
-      // 2. Switch/Verify BNB Smart Chain (Chain ID 56 / 0x38)
+      // 2. Ensure BNB Smart Chain (56 / 0x38)
       try {
         await window.ethereum.request({
           method: 'wallet_switchEthereumChain',
@@ -114,9 +115,9 @@ export default function AgentDetailPage({ params }: PageProps) {
         console.warn('Network switch warning:', switchErr);
       }
 
-      // 3. Construct EIP-712 Typed Data for EIP-3009 (transferWithAuthorization)
+      // 3. EIP-3009 Typed Data Payload
       const validAfter = 0;
-      const validBefore = Math.floor(Date.now() / 1000) + 3600; // 1 Hour Expiration
+      const validBefore = Math.floor(Date.now() / 1000) + 3600; // 1 Hour
       const nonce =
         '0x' +
         Array.from(crypto.getRandomValues(new Uint8Array(32)))
@@ -150,7 +151,7 @@ export default function AgentDetailPage({ params }: PageProps) {
         nonce,
       };
 
-      // 4. Trigger MetaMask Sign Typed Data Popup
+      // 4. Request MetaMask Signature
       const signature = await window.ethereum.request({
         method: 'eth_signTypedData_v4',
         params: [
@@ -164,9 +165,9 @@ export default function AgentDetailPage({ params }: PageProps) {
         ],
       });
 
-      console.log('EIP-3009 Voucher Signature Generated:', signature);
+      console.log('EIP-3009 Voucher Signature:', signature);
 
-      // 5. Package x402 V2 Header Payload
+      // 5. Construct x402 Header Payload
       const xPaymentPayload = btoa(
         JSON.stringify({
           x402Version: 2,
@@ -179,7 +180,7 @@ export default function AgentDetailPage({ params }: PageProps) {
         })
       );
 
-      // 6. Resubmit API Request with Payment Signature
+      // 6. Resubmit with Authorization Header
       const paidRes = await fetch(`/api/agent/56/${tokenId}`, {
         headers: {
           'x-payment': xPaymentPayload,
@@ -188,10 +189,11 @@ export default function AgentDetailPage({ params }: PageProps) {
 
       if (paidRes.ok) {
         await triggerFileDownload(paidRes);
-        setPaymentReqs(null); // Clear active challenge
+        setPaymentReqs(null);
+        setErrorMsg(null);
       } else {
         const errJson = await paidRes.json().catch(() => ({}));
-        throw new Error(errJson.error || 'Payment verification failed on backend server.');
+        throw new Error(errJson.error || 'Payment verification failed on server.');
       }
     } catch (err: any) {
       console.error('Signing Error:', err);
@@ -206,7 +208,7 @@ export default function AgentDetailPage({ params }: PageProps) {
       <h1 style={{ fontSize: '28px', marginBottom: '8px' }}>Agent #{tokenId} Details</h1>
       <p style={{ color: '#666', marginBottom: '24px' }}>BNB Smart Chain (Chain ID: 56)</p>
 
-      {/* CSV Export Card */}
+      {/* Export Section */}
       <div style={{ margin: '20px 0', padding: '24px', border: '1px solid #333', borderRadius: '8px', backgroundColor: '#121212', color: '#fff' }}>
         <h3 style={{ marginTop: 0 }}>Export CSV Analytics</h3>
         <p style={{ color: '#aaa', fontSize: '14px' }}>
@@ -231,14 +233,14 @@ export default function AgentDetailPage({ params }: PageProps) {
         </button>
       </div>
 
-      {/* Error Banner */}
+      {/* Error Banner - Only renders on true error states */}
       {errorMsg && (
         <div style={{ padding: '14px', color: '#ff4d4f', backgroundColor: '#2a1215', border: '1px solid #5c1d24', borderRadius: '6px', marginBottom: '20px' }}>
           <strong>Error:</strong> {errorMsg}
         </div>
       )}
 
-      {/* Active x402 Payment Challenge & MetaMask Trigger Box */}
+      {/* Active x402 Challenge Card */}
       {paymentReqs && (
         <div style={{ padding: '20px', backgroundColor: '#1a271d', border: '1px solid #27492c', color: '#fff', borderRadius: '8px' }}>
           <h4 style={{ margin: '0 0 12px 0', color: '#52c41a', display: 'flex', alignItems: 'center', gap: '8px' }}>

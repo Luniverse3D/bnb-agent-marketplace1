@@ -6,14 +6,14 @@ export async function GET(
 ) {
   const { chainId, tokenId } = await params;
 
-  // Check if request contains x402 payment header
+  // 1. Extract payment header from request
   const paymentHeader =
     request.headers.get('x-payment') ||
     request.headers.get('payment') ||
     request.headers.get('authorization');
 
+  // 2. If no payment header provided, return 402 Challenge
   if (!paymentHeader) {
-    // Return 402 Payment Required with CORS Expose Header enabled for frontend
     return NextResponse.json(
       { error: 'Payment required' },
       {
@@ -38,15 +38,46 @@ export async function GET(
     );
   }
 
-  // Handle validated payment and return agent data
-  return NextResponse.json({
-    success: true,
-    chainId,
-    tokenId,
-    data: {
-      agentId: tokenId,
-      status: 'active',
-      network: 'BSC',
-    },
-  });
+  // 3. Process incoming signed x402 payment voucher
+  try {
+    const decodedPayload = JSON.parse(Buffer.from(paymentHeader, 'base64').toString('utf-8'));
+    console.log('Received x402 payment voucher:', decodedPayload);
+
+    const { signature, authorization } = decodedPayload.payload || {};
+
+    if (!signature || !authorization) {
+      return NextResponse.json(
+        { error: 'Invalid payment authorization payload' },
+        { status: 400 }
+      );
+    }
+
+    // Verify voucher constraints (e.g. valid recipient and amount)
+    if (
+      authorization.to.toLowerCase() !== '0xb9e9bf2ed7319ae625765cc3705bd0a5649c360d'.toLowerCase() ||
+      authorization.value !== '10000000000000000'
+    ) {
+      return NextResponse.json(
+        { error: 'Payment authorization parameters do not match required pricing' },
+        { status: 400 }
+      );
+    }
+
+    // 4. Return unlocked CSV data stream/file
+    const csvContent = `agent_id,chain_id,status,exported_at\n${tokenId},${chainId},active,${new Date().toISOString()}`;
+
+    return new Response(csvContent, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="agent-${tokenId}-analytics.csv"`,
+      },
+    });
+  } catch (err: any) {
+    console.error('Backend voucher processing error:', err);
+    return NextResponse.json(
+      { error: 'Failed to verify x402 voucher signature' },
+      { status: 400 }
+    );
+  }
 }
