@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     network: 'eip155:56',
     payTo: PAY_TO,
     asset: U_TOKEN,
-    maxAmountRequired: '100000000000000000', // 0.1 U (18 decimals)
+    maxAmountRequired: '10000000000000000', // 0.1 U (18 decimals)
     extra: {
       name: 'United Stables',
       version: '1',
