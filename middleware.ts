@@ -63,6 +63,14 @@ export async function middleware(req: NextRequest) {
       );
     }
 
+	// Express / x402 Route Middleware
+	app.use('/api/code-lookup', x402Protection({
+  	payTo: '0xYourReceivingWalletAddress...',
+  	maxAmountRequired: '0.01', // Lowered quote amount to 0.01 U
+  	asset: '0xYourTokenAddress...',    // e.g. USDC, USDT, USD1, or U contract
+  	network: 'base-mainnet'            // or 'bsc-mainnet' / 'polygon-mainnet'
+    }));
+
     // Payment settled — allow request through
     const response = NextResponse.next();
     response.headers.set("X-PAYMENT-RESPONSE", settleResult.data?.txHash || "settled");
