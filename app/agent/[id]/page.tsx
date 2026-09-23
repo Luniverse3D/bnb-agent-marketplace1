@@ -1,79 +1,146 @@
+'use client';
+
+import React, { useState } from 'react';
 import { notFound } from 'next/navigation';
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-async function getAgent(tokenId: string) {
-  // Defaulting to BNB Chain (56)
-  const chainId = 56;
-  const res = await fetch(
-    `https://8004scan.io/api/v1/agents/${chainId}/${tokenId}`,
-    { next: { revalidate: 60 } }
-  );
+export default function AgentDetailPage({ params }: PageProps) {
+  // Unwrap Next.js 15+ async params via React.use
+  const { id: tokenId } = React.use(params);
 
-  if (!res.ok) {
-    // Fallback search query
-    const searchRes = await fetch(
-      `https://8004scan.io/api/v1/public/agents?search=${tokenId}`
-    );
-    const searchData = await searchRes.json();
-    
-    if (searchData.success && searchData.data?.length > 0) {
-      const match = searchData.data.find(
-        (a: any) => String(a.token_id) === String(tokenId)
-      );
-      if (match) return match;
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [paymentReqs, setPaymentReqs] = useState<any | null>(null);
+
+  // Trigger CSV Export & x402 0.01 U Payment Challenge
+  async function handleExportCSV() {
+    setLoading(true);
+    setErrorMsg(null);
+    setPaymentReqs(null);
+
+    try {
+      // 1. Fetch agent export API endpoint
+      const res = await fetch(`/api/agent/56/${tokenId}`);
+
+      // 2. Handle HTTP 402 Payment Challenge
+      if (res.status === 402) {
+        const rawHeader =
+          res.headers.get('x-payment-requirements') ||
+          res.headers.get('payment-required') ||
+          res.headers.get('PAYMENT-REQUIRED');
+
+        if (!rawHeader) {
+          throw new Error(
+            'Received 402 Payment Required, but browser could not read the payment header. Ensure Access-Control-Expose-Headers is set on server.'
+          );
+        }
+
+        // Safe JSON & Base64 decoding strategy
+        let parsedData: any;
+        try {
+          // If header is Base64 stringified
+          if (rawHeader.startsWith('eyJ') || !rawHeader.trim().startsWith('{')) {
+            const decoded = atob(rawHeader);
+            parsedData = JSON.parse(decoded);
+          } else {
+            parsedData = typeof rawHeader === 'string' ? JSON.parse(rawHeader) : rawHeader;
+          }
+        } catch (parseError) {
+          console.error('Raw header parse error:', parseError, rawHeader);
+          throw new Error('Invalid payment required response format.');
+        }
+
+        console.log('Successfully parsed x402 Requirements:', parsedData);
+        setPaymentReqs(parsedData);
+        return;
+      }
+
+      // 3. Handle HTTP 200 OK CSV Download
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `agent-${tokenId}-export.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+
+      throw new Error(`Unexpected response code: ${res.status}`);
+    } catch (err: any) {
+      console.error('Export Error:', err);
+      setErrorMsg(err.message || 'Failed to trigger CSV export.');
+    } finally {
+      setLoading(false);
     }
-    return null;
-  }
-
-  const json = await res.json();
-  return json.data || json;
-}
-
-export default async function AgentDetailPage({ params }: PageProps) {
-  const { id } = await params;
-  const agent = await getAgent(id);
-
-  if (!agent) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen p-6">
-        <h1 className="text-2xl font-bold text-red-500">Agent #{id} Not Found</h1>
-        <p className="mt-2 text-gray-400">
-          This agent could not be found on BNB Smart Chain (Chain ID 56).
-        </p>
-      </div>
-    );
   }
 
   return (
-    <main className="max-w-4xl mx-auto p-6">
-      <div className="border border-gray-800 rounded-lg p-6 bg-slate-900 text-white shadow-xl">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-3xl font-bold">{agent.name || `Agent #${agent.token_id}`}</h1>
-          <span className="px-3 py-1 bg-blue-600 rounded-full text-xs font-semibold">
-            Token #{agent.token_id}
-          </span>
-        </div>
+    <main style={{ maxWidth: '800px', margin: '40px auto', padding: '0 20px', fontFamily: 'sans-serif' }}>
+      <h1>Agent #{tokenId} Details</h1>
 
-        <p className="text-gray-300 mb-6">{agent.description || 'No description provided.'}</p>
+      <div style={{ margin: '20px 0', padding: '20px', border: '1px solid #333', borderRadius: '8px' }}>
+        <h3>Export Agent Data</h3>
+        <p>Download programmatic analytics for Agent #{tokenId} (Requires 0.01 U payment signature).</p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm border-t border-gray-800 pt-4">
-          <div>
-            <span className="text-gray-500 block">Owner Address</span>
-            <span className="font-mono text-xs">{agent.owner_address || 'N/A'}</span>
-          </div>
-          <div>
-            <span className="text-gray-500 block">Total Score</span>
-            <span className="font-semibold text-green-400">{agent.total_score ?? 'N/A'}</span>
-          </div>
-          <div>
-            <span className="text-gray-500 block">x402 Payment Support</span>
-            <span>{agent.x402_supported ? '✅ Enabled' : '❌ Disabled'}</span>
-          </div>
-        </div>
+        <button
+          onClick={handleExportCSV}
+          disabled={loading}
+          style={{
+            padding: '10px 20px',
+            fontSize: '16px',
+            backgroundColor: '#0070f3',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: loading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {loading ? 'Processing...' : 'Export CSV'}
+        </button>
       </div>
+
+      {/* Error Message Display */}
+      {errorMsg && (
+        <div style={{ padding: '12px', color: '#ff4d4f', backgroundColor: '#fff2f0', borderRadius: '6px', marginBottom: '16px' }}>
+          <strong>Error:</strong> {errorMsg}
+        </div>
+      )}
+
+      {/* Payment Requirements Modal / Challenge Box */}
+      {paymentReqs && (
+        <div style={{ padding: '16px', backgroundColor: '#1e1e1e', color: '#fff', borderRadius: '6px' }}>
+          <h4 style={{ margin: '0 0 10px 0', color: '#52c41a' }}>✓ 402 Payment Challenge Active</h4>
+          <p style={{ fontSize: '14px', margin: '4px 0' }}>
+            <strong>Network:</strong> {paymentReqs.network || 'eip155:56'}
+          </p>
+          <p style={{ fontSize: '14px', margin: '4px 0' }}>
+            <strong>Amount Required:</strong> {paymentReqs.maxAmountRequired || paymentReqs.amount} wei (0.01 U)
+          </p>
+          <p style={{ fontSize: '14px', margin: '4px 0' }}>
+            <strong>Recipient:</strong> {paymentReqs.payTo}
+          </p>
+          <button
+            onClick={() => alert('Connect your Web3 Wallet to sign the 0.01 U authorization voucher.')}
+            style={{
+              marginTop: '12px',
+              padding: '8px 16px',
+              backgroundColor: '#52c41a',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+            }}
+          >
+            Sign & Pay 0.01 U
+          </button>
+        </div>
+      )}
     </main>
   );
 }

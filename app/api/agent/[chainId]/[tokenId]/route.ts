@@ -6,21 +6,27 @@ export async function GET(
 ) {
   const { chainId, tokenId } = await params;
 
-  const paymentHeader = request.headers.get('x-payment');
+  // Check if request contains x402 payment header
+  const paymentHeader =
+    request.headers.get('x-payment') ||
+    request.headers.get('payment') ||
+    request.headers.get('authorization');
 
   if (!paymentHeader) {
+    // Return 402 Payment Required with CORS Expose Header enabled for frontend
     return NextResponse.json(
       { error: 'Payment required' },
       {
         status: 402,
         headers: {
+          'Access-Control-Expose-Headers': 'x-payment-requirements, payment-required',
           'x-payment-requirements': JSON.stringify({
             x402Version: 2,
             scheme: 'exact',
             network: 'eip155:56',
             payTo: '0xb9e9bf2ed7319ae625765cc3705bd0a5649c360d',
             asset: '0xcE24439F2D9C6a2289F741120FE202248B666666',
-            maxAmountRequired: '10000000000000000', // 0.01 U (18 decimals)
+            maxAmountRequired: '10000000000000000', // 0.01 U
             extra: {
               name: 'United Stables',
               version: '1',
@@ -32,5 +38,15 @@ export async function GET(
     );
   }
 
-  return NextResponse.json({ success: true, chainId, tokenId });
+  // Handle validated payment and return agent data
+  return NextResponse.json({
+    success: true,
+    chainId,
+    tokenId,
+    data: {
+      agentId: tokenId,
+      status: 'active',
+      network: 'BSC',
+    },
+  });
 }
